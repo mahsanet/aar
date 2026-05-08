@@ -1,0 +1,122 @@
+name: Build Hysteria2 AAR
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: Repository to clone and build
+        required: true
+        default: apernet/hysteria
+      target_ref:
+        description: Branch, tag, or commit to check out in the target repository
+        required: true
+        default: app/v2.8.2
+      release_tag:
+        description: Release tag to create or update. Leave blank to auto-generate one.
+        required: false
+        default: ""
+      release_name:
+        description: Release name. Leave blank to auto-generate one.
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-aar:
+    name: Build and release AAR
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      TARGET_REPOSITORY: ${{ inputs.target_repository }}
+      TARGET_REF: ${{ inputs.target_ref }}
+      RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+      RELEASE_NAME_INPUT: ${{ inputs.release_name }}
+      ANDROID_NDK_VERSION: r29
+      OUTPUT_AAR: libhysteria2.aar
+      GO_PACKAGE: ./app
+
+    steps:
+      - name: Check out workflow repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+
+      - name: Set up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          link-to-sdk: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Export Android NDK environment
+        run: |
+          echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "${GITHUB_ENV}"
+          echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> "${GITHUB_ENV}"
+
+      - name: Clone target repository
+        run: |
+          git init "${RUNNER_TEMP}/target"
+          cd "${RUNNER_TEMP}/target"
+          git remote add origin "https://github.com/${TARGET_REPOSITORY}.git"
+          git fetch --depth 1 origin "${TARGET_REF}"
+          git checkout --detach FETCH_HEAD
+          git rev-parse HEAD
+
+      - name: Build AAR
+        run: |
+          mkdir -p "${GITHUB_WORKSPACE}/dist"
+          cd "${RUNNER_TEMP}/target"
+          version="${TARGET_REF##*/}"
+          version="${version#v}"
+          LDFLAGS="-s -w -buildid= \
+            -X github.com/apernet/hysteria/app/cmd.appVersion=${version} \
+            -X github.com/apernet/hysteria/app/cmd.appType=release \
+            -extldflags=-Wl,-z,max-page-size=16384,-z,common-page-size=16384"
+          uv run --no-project "${GITHUB_WORKSPACE}/build_aar.py" \
+            --build-cmd "${GO_PACKAGE}" \
+            --ldflags "${LDFLAGS}" \
+            --min-sdk 21 \
+            --out-dir "${GITHUB_WORKSPACE}/dist" \
+            --aar-name "${OUTPUT_AAR%.aar}"
+          ls -lh "${GITHUB_WORKSPACE}/dist/${OUTPUT_AAR}"
+
+      - name: Prepare release metadata
+        run: |
+          ref_slug="$(printf '%s' "${TARGET_REF}" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//; s/-$//')"
+          release_date="$(date -u +%F)"
+          release_tag="${RELEASE_TAG_INPUT:-hysteria2-${ref_slug}-${release_date}}"
+          release_name="${RELEASE_NAME_INPUT:-Hysteria2 AAR ${ref_slug} ${release_date}}"
+          {
+            echo "RELEASE_TAG=${release_tag}"
+            echo "RELEASE_NAME=${release_name}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libhysteria2-aar
+          path: dist/libhysteria2.aar
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "dist/${OUTPUT_AAR}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" "dist/${OUTPUT_AAR}" \
+              --title "${RELEASE_NAME}" \
+              --notes "Built ${OUTPUT_AAR} from ${TARGET_REPOSITORY}@${TARGET_REF}"
+          fi
