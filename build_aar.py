@@ -154,8 +154,24 @@ def package_aar(
 
         # jni/<abi>/lib*.so
         for so in sorted(jni_dir.rglob("*.so")):
-            arc_name = "jni" / so.relative_to(jni_dir)
+            arc_name = Path("jni") / so.relative_to(jni_dir)
             aar.write(so, arc_name)
+
+
+def pack_sos_with_upx(jni_dir: Path) -> None:
+    upx = shutil.which("upx")
+    if not upx:
+        die("UPX not found on PATH. Install UPX before building the -upx AAR.")
+
+    so_files = sorted(jni_dir.rglob("*.so"))
+    if not so_files:
+        die(f"No shared libraries found to pack in {jni_dir}")
+
+    for so in so_files:
+        log(f"Packing {so} with UPX")
+        result = subprocess.run([upx, str(so)])
+        if result.returncode != 0:
+            die(f"UPX failed for {so} (exit {result.returncode})")
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
@@ -164,8 +180,7 @@ def parse_args() -> argparse.Namespace:
         description="Build a Go project for Android and package it as an AAR.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--lib-name",     default="",    help="Output .so filename (without extension)")
-    p.add_argument("--aar-name",     default="",    help="Output .aar filename (without extension)")
+    p.add_argument("--lib-name",     default="",    help="Output library base name (without extension)")
     p.add_argument("--package-name", default="",    help="Android package name for AndroidManifest.xml")
     p.add_argument("--build-cmd",    default="",    help="Go build target passed to 'go build'")
     p.add_argument("--min-sdk",      default=21,    type=int,   help="Minimum Android API level")
@@ -205,12 +220,24 @@ def main() -> None:
             jni_dir=jni_dir,
         )
 
-        aar_out = out_dir / f"{args.aar_name}.aar"
+        aar_out = out_dir / f"{args.lib_name}.aar"
         package_aar(
             jni_dir=jni_dir,
             package_name=args.package_name,
             min_sdk=args.min_sdk,
             aar_out=aar_out,
+        )
+
+        upx_jni_dir = Path(tmp) / "jni-upx"
+        shutil.copytree(jni_dir, upx_jni_dir)
+        pack_sos_with_upx(upx_jni_dir)
+
+        upx_aar_out = out_dir / f"{args.lib_name}-upx.aar"
+        package_aar(
+            jni_dir=upx_jni_dir,
+            package_name=args.package_name,
+            min_sdk=args.min_sdk,
+            aar_out=upx_aar_out,
         )
 
 if __name__ == "__main__":

@@ -36,7 +36,6 @@ jobs:
       RELEASE_NAME_INPUT: ${{ inputs.release_name }}
       ANDROID_NDK_VERSION: r29
       LIB_NAME: libhysteria2
-      OUTPUT_AAR: libhysteria2.aar
       ANDROID_PACKAGE_NAME: com.mahsanet.hysteria2
       GO_PACKAGE: ./app
 
@@ -59,6 +58,11 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Install UPX
+        uses: crazy-max/ghaction-upx@v4
+        with:
+          install-only: true
 
       - name: Export Android NDK environment
         run: |
@@ -86,13 +90,12 @@ jobs:
             -extldflags=-Wl,-z,max-page-size=16384,-z,common-page-size=16384"
           uv run --no-project "${GITHUB_WORKSPACE}/build_aar.py" \
             --lib-name "${LIB_NAME}" \
-            --aar-name "${OUTPUT_AAR%.aar}" \
             --package-name "${ANDROID_PACKAGE_NAME}" \
             --build-cmd "${GO_PACKAGE}" \
             --min-sdk 21 \
             --out-dir "${GITHUB_WORKSPACE}/dist" \
             --ldflags "${LDFLAGS}"
-          ls -lh "${GITHUB_WORKSPACE}/dist/${OUTPUT_AAR}"
+          ls -lh "${GITHUB_WORKSPACE}"/dist/*.aar
 
       - name: Prepare release metadata
         run: |
@@ -109,7 +112,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libhysteria2-aar
-          path: dist/libhysteria2.aar
+          path: dist/*.aar
           if-no-files-found: error
 
       - name: Publish GitHub release
@@ -118,9 +121,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "dist/${OUTPUT_AAR}" --clobber
+            gh release upload "${RELEASE_TAG}" dist/*.aar --clobber
           else
-            gh release create "${RELEASE_TAG}" "dist/${OUTPUT_AAR}" \
+            gh release create "${RELEASE_TAG}" dist/*.aar \
               --title "${RELEASE_NAME}" \
-              --notes "Built ${OUTPUT_AAR} from ${TARGET_REPOSITORY}@${TARGET_REF}"
+              --notes "Built AAR files from ${TARGET_REPOSITORY}@${TARGET_REF}"
           fi
