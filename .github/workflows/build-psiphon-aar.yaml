@@ -6,11 +6,11 @@ on:
       target_repository:
         description: Repository to clone and build
         required: true
-        default: shirokhorshid/psiphon-tunnel-core
+        default: GFW-knocker/psiphon-tunnel-core
       target_ref:
         description: Branch, tag, or commit to check out in the target repository
         required: true
-        default: 2026.05.24
+        default: shirokhorshid
       release_tag:
         description: Release tag to create or update. Leave blank to auto-generate one.
         required: false
