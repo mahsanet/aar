@@ -10,7 +10,7 @@ on:
       target_ref:
         description: Branch, tag, or commit to check out in the target repository
         required: true
-        default: shirokhorshid
+        default: nkr
       release_tag:
         description: Release tag to create or update. Leave blank to auto-generate one.
         required: false
@@ -76,8 +76,6 @@ jobs:
           git rev-parse HEAD
 
       - name: Build AAR
-        env:
-          GOTOOLCHAIN: go1.24.13
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/dist"
           cd "${RUNNER_TEMP}/target"
