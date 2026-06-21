@@ -43,7 +43,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           check-latest: true
 
       - name: Set up Android NDK
@@ -76,6 +76,8 @@ jobs:
           git rev-parse HEAD
 
       - name: Build AAR
+        env:
+          GOTOOLCHAIN: go1.24.13
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/dist"
           cd "${RUNNER_TEMP}/target"
